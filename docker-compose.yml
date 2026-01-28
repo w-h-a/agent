@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16 
+    container_name: memory-pg
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: memory
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d memory"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
