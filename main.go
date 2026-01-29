@@ -7,35 +7,51 @@ import (
 	"log"
 	"time"
 
+	"github.com/w-h-a/agent/pkg/generator"
+	"github.com/w-h-a/agent/pkg/generator/anthropic"
+	"github.com/w-h-a/agent/pkg/generator/google"
+	"github.com/w-h-a/agent/pkg/generator/openai"
 	"github.com/w-h-a/agent/pkg/retriever"
 	"github.com/w-h-a/agent/pkg/retriever/gomento"
 	"github.com/w-h-a/agent/pkg/retriever/postgres"
 )
 
-const gomentoURL = "http://localhost:4000"
-const memoryPG = "postgres://user:password@localhost:5432/memory?sslmode=disable"
+const (
+	gomentoURL = "http://localhost:4000"
+	memoryPG   = "postgres://user:password@localhost:5432/memory?sslmode=disable"
+)
 
 func main() {
 	ctx := context.Background()
 
-	// 1️⃣ Initialize the Retriever
+	// 1. Initialize the Retriever
 	r := initRetriever("postgres")
 
-	// 2️⃣ Initialize The (Optional) Space
+	// 2. Initialize a Generator (Model) for the Agent
+	_ = initPrimaryModel("openai")
+
+	// 3. Initialize a Generator (Model) for the Sub-Agent(s?)
+	_ = initSubModels("openai")
+
+	// 4. Initialize the Tool Provider
+
+	// 5. Create Agent and Sub-Agent
+
+	// 6. Initialize The (Optional) Space
 	spaceID, err := r.CreateSpace(ctx, "agent-learning-space")
 	if err != nil {
 		log.Fatalf("❌ failed to create space: %v", err)
 	}
 	fmt.Printf("✅ Connected to Space: %s\n", spaceID)
 
-	// 3️⃣ Initialize The Session
+	// 7. Initialize The Session
 	sessionID, err := r.CreateSession(ctx, retriever.WithSpaceId(spaceID))
 	if err != nil {
 		log.Fatalf("❌ failed to create session: %v", err)
 	}
 	fmt.Printf("✅ Started Session: %s\n", sessionID)
 
-	// 4️⃣ Simulate Conversation
+	// 8. Simulate Conversation
 	inputs := []string{
 		"User: I want to build a Go agent that uses pgvector.",
 		"Agent: That sounds great. You should use the pgvector-go library.",
@@ -58,7 +74,7 @@ func main() {
 	}
 	fmt.Println("✅ Populated conversation history.")
 
-	// 5️⃣ Consolidate Memory
+	// 9. Consolidate Memory
 	fmt.Println("⏳ Flushing to Long-Term...")
 	if err := r.FlushToLongTerm(ctx, sessionID); err != nil {
 		log.Printf("⚠️ failed to flush: %v", err)
@@ -66,7 +82,7 @@ func main() {
 
 	time.Sleep(10 * time.Second)
 
-	// 6️⃣ Retrieve Context & Build Prompt
+	// 10. Retrieve Context & Build Prompt
 	userQuery := "What index did you recommend for vector search?"
 
 	prompt, err := retrieveContextAndBuildPrompt(ctx, r, spaceID, sessionID, userQuery)
@@ -161,5 +177,55 @@ func initRetriever(choice string) retriever.Retriever {
 		)
 	default:
 		panic("unknown retriever choice")
+	}
+}
+
+func initPrimaryModel(choice string) generator.Generator {
+	switch choice {
+	case "openai":
+		return openai.NewGenerator(
+			generator.WithApiKey(""),
+			generator.WithModel("gpt-3.5-turbo"),
+			generator.WithPromptPrefix(""),
+		)
+	case "google":
+		return google.NewGenerator(
+			generator.WithApiKey(""),
+			generator.WithModel(""),
+			generator.WithPromptPrefix(""),
+		)
+	case "anthropic":
+		return anthropic.NewGenerator(
+			generator.WithApiKey(""),
+			generator.WithModel(""),
+			generator.WithPromptPrefix(""),
+		)
+	default:
+		panic("unknown model choice")
+	}
+}
+
+func initSubModels(choice string) []generator.Generator {
+	switch choice {
+	case "openai":
+		return []generator.Generator{openai.NewGenerator(
+			generator.WithApiKey(""),
+			generator.WithModel("gpt-3.5-turbo"),
+			generator.WithPromptPrefix(""),
+		)}
+	case "google":
+		return []generator.Generator{google.NewGenerator(
+			generator.WithApiKey(""),
+			generator.WithModel(""),
+			generator.WithPromptPrefix(""),
+		)}
+	case "anthropic":
+		return []generator.Generator{anthropic.NewGenerator(
+			generator.WithApiKey(""),
+			generator.WithModel(""),
+			generator.WithPromptPrefix(""),
+		)}
+	default:
+		panic("unknown model choice")
 	}
 }
