@@ -1,4 +1,4 @@
-package agent
+package service
 
 import (
 	"bytes"
@@ -20,8 +20,8 @@ type Agent struct {
 	retriever     retriever.Retriever
 	generator     generator.Generator
 	toolProviders map[string]toolprovider.ToolProvider
-	systemPrompt  string
 	contextLimit  int
+	systemPrompt  string
 }
 
 func (a *Agent) CreateSpace(ctx context.Context, name string) (string, error) {
@@ -123,14 +123,19 @@ func (a *Agent) buildPrompt(ctx context.Context, spaceId string, sessionId strin
 	}
 
 	// 2. Fetch Long-Term (Messages + Skills)
-	longTermMsgs, skills, err := a.retriever.SearchLongTerm(
-		ctx,
-		input,
-		retriever.WithSearchLongTermSpaceId(spaceId),
-		retriever.WithSearchLongTermLimit(a.contextLimit),
-	)
-	if err != nil {
-		return "", fmt.Errorf("long-term error: %w", err)
+	var longTermMsgs []retriever.Message
+	var skills []retriever.Skill
+	if len(spaceId) > 0 {
+		var err error
+		longTermMsgs, skills, err = a.retriever.SearchLongTerm(
+			ctx,
+			input,
+			retriever.WithSearchLongTermSpaceId(spaceId),
+			retriever.WithSearchLongTermLimit(a.contextLimit),
+		)
+		if err != nil {
+			return "", fmt.Errorf("long-term error: %w", err)
+		}
 	}
 
 	// 3. Deduplicate Messages (Favor Long-Term)
@@ -198,12 +203,12 @@ func (a *Agent) buildPrompt(ctx context.Context, spaceId string, sessionId strin
 	return sb.String(), nil
 }
 
-func New(
+func NewAgent(
 	retriever retriever.Retriever,
 	generator generator.Generator,
 	toolProviders map[string]toolprovider.ToolProvider,
-	systemPrompt string,
 	contextLimit int,
+	systemPrompt string,
 ) *Agent {
 	if retriever == nil {
 		panic("retriever is required")
@@ -225,7 +230,7 @@ func New(
 		retriever:     retriever,
 		generator:     generator,
 		toolProviders: toolProviders,
-		systemPrompt:  systemPrompt,
 		contextLimit:  contextLimit,
+		systemPrompt:  systemPrompt,
 	}
 }
