@@ -10,7 +10,7 @@ Agent provides a clean scaffolding for agents where every component is an interf
 
 ## Usage
 
-Coming soon!
+Coming soon.
 
 ## Architecture
 
