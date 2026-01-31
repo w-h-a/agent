@@ -4,68 +4,131 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"time"
 
+	"github.com/alecthomas/kong"
 	"github.com/w-h-a/agent"
+	"github.com/w-h-a/agent/cmd/demo/tools/calculate"
+	"github.com/w-h-a/agent/cmd/demo/tools/research"
+	"github.com/w-h-a/agent/generator"
+	"github.com/w-h-a/agent/generator/openai"
+	"github.com/w-h-a/agent/retriever"
+	"github.com/w-h-a/agent/retriever/gomento"
+	toolprovider "github.com/w-h-a/agent/tool_provider"
 )
 
-const (
-	gomentoURL = "http://localhost:4000"
-	memoryPG   = "postgres://user:password@localhost:5432/memory?sslmode=disable"
+var (
+	cfg struct {
+		// Retriever config
+		RetrieverLocation string `help:"Address of memory store for retriever client" default:"http://localhost:4000"`
+		// RetrieverLocation string `help:"Address of memory store for retriever client" default:"postgres://user:password@localhost:5432/memory?sslmode=disable"`
+		Window   int    `help:"Short-term memory window size per session" default:"8"`
+		Embedder string `help:"Model identifier for vector embeddings" default:"text-embedding-3-small"`
+
+		// Generator config
+		APIKey string `help:"API Key for the model" default:""`
+		Model  string `help:"Model identifier for primary" default:"gpt-3.5-turbo"`
+
+		// Agent config
+		Context      int    `help:"Number of conversation turns to send to the model" default:"6"`
+		SystemPrompt string `help:"System prompt for the agent" default:"You orchestrate tooling and specialists to help the user build AI agents."`
+
+		// Session config
+		Session string `help:"Optional fixed session identifier" default:""`
+	}
 )
 
 func main() {
+	// Parse inputs
+	_ = kong.Parse(&cfg)
 	ctx := context.Background()
 
-	// 1. Create Agent
-	a := agent.InitAgent(
-		ctx,
-		"gomento",
-		gomentoURL,
-		"openai",
-		"",
-		"gpt-3.5-turbo",
-		"text-embedding-3-small",
-		"You orchestrate tooling and specialists to help the user build AI agents.",
-		6,
+	// Create custom tooling
+	calculate := calculate.NewToolProvider()
+
+	researchModel := openai.NewGenerator(
+		generator.WithApiKey(cfg.APIKey),
+		generator.WithModel(cfg.Model),
+		generator.WithPromptPrefix("Researcher response:"),
 	)
+	research := research.NewToolProvider(
+		toolprovider.WithGenerator(researchModel),
+	)
+
+	// Create primary agent's model
+	primaryModel := openai.NewGenerator(
+		generator.WithApiKey(cfg.APIKey),
+		generator.WithModel(cfg.Model),
+		generator.WithPromptPrefix("Coordinator response:"),
+	)
+
+	// Create retriever
+	re := gomento.NewRetriever(
+		retriever.WithLocation(cfg.RetrieverLocation),
+	)
+
+	// re := postgres.NewRetriever(
+	// 	retriever.WithLocation(cfg.RetrieverLocation),
+	// 	retriever.WithApiKey(cfg.APIKey),
+	// 	retriever.WithModel(cfg.Embedder),
+	// 	retriever.WithShortTermMemorySize(cfg.Window),
+	// )
+
+	// Create ADK
+	adk := agent.New(
+		ctx,
+		re,
+		primaryModel,
+		map[string]toolprovider.ToolProvider{
+			"calculate": calculate,
+			"research":  research,
+		},
+		cfg.Context,
+		cfg.SystemPrompt,
+	)
+	defer adk.Close()
 
 	fmt.Println("--- Agent Development Kit Demo ---")
 
-	// 2. Initialize The (Optional) Space
-	spaceId, err := a.CreateSpace(ctx, "agent-learning-space")
-	if err != nil {
-		log.Fatalf("❌ failed to create space: %v", err)
-	}
-	fmt.Printf("✅ Connected to Space: %s\n", spaceId)
+	// TODO: support spaces
+	// spaceId, err := a.CreateSpace(ctx, "agent-learning-space")
+	// if err != nil {
+	// 	log.Fatalf("❌ failed to create space: %v", err)
+	// }
+	// fmt.Printf("✅ Connected to Space: %s\n", spaceId)
 
-	// 3. Initialize The Session
-	sessionId, err := a.CreateSession(ctx, spaceId)
+	// 1. Start session
+	session, err := adk.NewSession(ctx, cfg.Session)
 	if err != nil {
-		log.Fatalf("❌ failed to create session: %v", err)
+		log.Fatalf("❌ failed to start session: %v", err)
 	}
+	sessionId := session.ID()
 	fmt.Printf("✅ Started Session: %s\n", sessionId)
 
-	// 4. Simulate Conversation
-	userQuestions := []string{
+	// 2. Simulate Conversation
+	prompts := []string{
 		"I want to design an AI agent with both short term and long term memory. How should I start?",
 		"tool:calculate 21 / 3",
 		"tool:research Provide a concise brief on pgvector usage for AI memory.",
 		"How can I wire everything together after gathering research?",
 	}
 
-	for _, msg := range userQuestions {
-		rsp, err := a.Respond(ctx, spaceId, sessionId, msg)
+	for _, prompt := range prompts {
+		start := time.Now()
+		reply, err := session.Ask(ctx, prompt)
+		duration := time.Since(start)
 		if err != nil {
-			log.Printf("❌ Agent error: %v\n", err)
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			continue
 		}
-		fmt.Printf("User: %s\nAgent: %s\n\n", msg, rsp)
+		fmt.Printf("User: %s\nAgent: %s\n(%.2fs)\n\n", prompt, reply, duration.Seconds())
 	}
 	fmt.Println("✅ Populated conversation history.")
 
 	// 5. Consolidate Memory
 	fmt.Println("⏳ Flushing to Long-Term...")
-	if err := a.Flush(ctx, sessionId); err != nil {
+	if err := session.Flush(ctx); err != nil {
 		log.Printf("⚠️ failed to flush: %v", err)
 	} else {
 		log.Printf("flushed short-term memory for %s to long-term storage", sessionId)

@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
-	"time"
+	"sync/atomic"
 
 	_ "github.com/lib/pq"
 	"github.com/pgvector/pgvector-go"
@@ -44,8 +44,9 @@ type postgresRetriever struct {
 	options retriever.Options
 	conn    *sql.DB
 	embeddings.Embedder
-	shortTerm map[string][]retriever.Message
-	mtx       sync.RWMutex
+	shortTerm      map[string][]retriever.Message
+	mtx            sync.RWMutex
+	sessionCounter atomic.Uint64
 }
 
 func (r *postgresRetriever) CreateSpace(ctx context.Context, name string) (string, error) {
@@ -53,7 +54,9 @@ func (r *postgresRetriever) CreateSpace(ctx context.Context, name string) (strin
 }
 
 func (r *postgresRetriever) CreateSession(ctx context.Context, opts ...retriever.CreateSessionOption) (string, error) {
-	return fmt.Sprintf("session-%d", time.Now().Unix()), nil
+	counter := r.sessionCounter.Add(1)
+	id := fmt.Sprintf("session-%d", counter)
+	return id, nil
 }
 
 func (r *postgresRetriever) AddShortTerm(ctx context.Context, sessionId string, role string, parts []retriever.Part, opts ...retriever.AddToShortTermOption) error {

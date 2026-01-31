@@ -5,6 +5,7 @@ go 1.24.4
 toolchain go1.24.12
 
 require (
+	github.com/alecthomas/kong v1.13.0
 	github.com/anthropics/anthropic-sdk-go v1.19.0
 	github.com/google/generative-ai-go v0.15.1
 	github.com/lib/pq v1.10.9
